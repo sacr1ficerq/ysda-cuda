@@ -10,10 +10,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS  ON)
 find_package(Catch REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
-set(Clang_DIR "/usr/lib/llvm-16/lib/cmake/clang")
-set(LLVM_DIR "/usr/lib/llvm-16/lib/cmake/llvm")
-find_package(Clang CONFIG)
-
 include(tools/cmake/TestSolution.cmake)
 include(tools/cmake/BuildFlags.cmake)
 add_subdirectory(tools)
