@@ -20,5 +20,6 @@ grade:
       when: manual
     - when: on_success
   script:
+    - . /opt/checker/venv/bin/activate
     - python3 -m checker grade . /opt/shad
   timeout: 10 minutes
