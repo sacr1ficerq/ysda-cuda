@@ -6,7 +6,7 @@
 #include <cuda_helpers.h>
 
 __global__ void HelloWorldKernel() {
-	printf("Hello, world!");
+    printf("Hello, world!");
 }
 
 void CallHelloWorld() {
