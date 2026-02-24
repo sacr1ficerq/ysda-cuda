@@ -5,7 +5,12 @@
 
 #include <cuda_helpers.h>
 
+__global__ void HelloWorldKernel() {
+	printf("Hello, world!");
+}
+
 void CallHelloWorld() {
     // Call your CUDA kernel here
-    throw std::runtime_error{"Not implemented"};
+    HelloWorldKernel<<<1, 1>>>();
+    cudaDeviceSynchronize();
 }
