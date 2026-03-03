@@ -1,17 +1,17 @@
 #pragma once
 
 __global__ void Map(const float* data, float* out) {
-    const size_t idx = threadIdx.x; 
+    const size_t idx = threadIdx.x;
     out[idx] = data[idx] + 10;
 }
 
 __global__ void Zip(const float* left, const float* right, float* out) {
-    const size_t idx = threadIdx.x; 
+    const size_t idx = threadIdx.x;
     out[idx] = left[idx] + right[idx];
 }
 
 __global__ void Guard(const float* data, float* out, size_t size) {
-    const size_t idx = threadIdx.x; 
+    const size_t idx = threadIdx.x;
     if (idx >= size) {
         return;
     }
