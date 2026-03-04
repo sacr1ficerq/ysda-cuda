@@ -18,8 +18,11 @@ struct TestCase {
 };
 
 std::string ReverseStringSpec(std::string str) {
-    std::reverse(str.begin(), str.end());
-
+    const size_t length = str.size();
+    char* str_ptr = str.data();
+    for (size_t i = 0; i < (length - i - 1); ++i) {
+        std::swap(str_ptr[i], str_ptr[length - i - 1]);
+    }
     return str;
 }
 
