@@ -8,7 +8,7 @@
 #define N_BLOCKS(N, M) ((N) + (M) - 1) / (M)
 
 __global__ void ReverseKernel(char* s, size_t n) {
-    const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
     if (idx >= n / 2) {
         return;
     }
