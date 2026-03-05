@@ -22,7 +22,7 @@ void ReverseDeviceStringInplace(char* str, size_t length) {
     if (length == 0 || length == 1) {
         return;
     }
-    size_t n_threads = 1024;
+    size_t n_threads = 256;
     size_t n_blocks = N_BLOCKS(length / 2, n_threads);
     ReverseKernel<<<n_blocks, n_threads>>>(str, length);
     cudaDeviceSynchronize();
