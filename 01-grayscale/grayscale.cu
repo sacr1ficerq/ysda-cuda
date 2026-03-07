@@ -1,5 +1,7 @@
 #include "grayscale.cuh"
 
+// Trigger check
+
 Image AllocHostImage(size_t width, size_t height, size_t channels) {
     size_t image_size = width * height * channels;
     auto image_data = static_cast<uint8_t*>(malloc(image_size * sizeof(uint8_t)));
