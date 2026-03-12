@@ -13,6 +13,12 @@ struct DeviceMatrix {
     size_t cols;
     size_t stride;  // Distance in elements between first values of consecutive rows/columns
     MatrixLayout layout;
+
+    __host__ __device__ inline __half& At(size_t y, size_t x) const {
+        const size_t idx =
+            this->layout == MatrixLayout::RowMajor ? y * this->stride + x : y + x * this->stride;
+        return this->data[idx];
+    }
 };
 
 __global__ void GEMMKernel(const DeviceMatrix a, const DeviceMatrix b, const DeviceMatrix c,
@@ -20,37 +26,25 @@ __global__ void GEMMKernel(const DeviceMatrix a, const DeviceMatrix b, const Dev
     // A: [M, N]
     // B: [N, K]
     // C: [M, K]
-    const size_t index_x = blockDim.x * blockIdx.x + threadIdx.x;
-    const size_t index_y = blockDim.y * blockIdx.y + threadIdx.y;
+    const size_t x = blockDim.x * blockIdx.x + threadIdx.x;
+    const size_t y = blockDim.y * blockIdx.y + threadIdx.y;
 
-    if (index_x >= c.cols || index_y >= c.rows) {
+    if (x >= c.cols || y >= c.rows) {
         return;
     }
 
     // D[y, x] = <A[y, :], B[:, x]> + C[y, x]
-    auto get_idx = [](size_t y, size_t x, size_t stride, MatrixLayout layout) -> size_t {
-        return layout == MatrixLayout::RowMajor ? y * stride + x : y + x * stride;
-    };
     assert(a.cols == b.rows);
     size_t n = a.cols;
     float s = 0;
     for (size_t i = 0; i < n; ++i) {
-        // [y, i]
-        size_t idx_a = get_idx(index_y, i, a.stride, a.layout);
-        // [i, x]
-        size_t idx_b = get_idx(i, index_x, b.stride, b.layout);
-        s += static_cast<float>(a.data[idx_a] * b.data[idx_b]);
+        s += static_cast<float>(a.At(y, i) * b.At(i, x));
     }
 
-    // [y, x]
-    size_t idx_c = get_idx(index_y, index_x, c.stride, c.layout);
-    // [y, x]
-    size_t idx_d = get_idx(index_y, index_x, d.stride, d.layout);
-
     float t1 = alpha * s;
-    float t2 = beta * static_cast<float>(c.data[idx_c]);
+    float t2 = beta * static_cast<float>(c.At(y, x));
 
-    d.data[idx_d] = static_cast<__half>(t1 + t2);
+    d.At(y, x) = static_cast<__half>(t1 + t2);
 }
 
 void GEMM(const DeviceMatrix& a, const DeviceMatrix& b, const DeviceMatrix& c, DeviceMatrix& d,
