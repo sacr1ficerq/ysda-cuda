@@ -6,8 +6,7 @@ $$
 \begin{pmatrix}
 1 & 2 & 3 \\
 4 & 5 & 6
-\end{pmatrix}^{T}
-=
+\end{pmatrix}^{T}=
 \begin{pmatrix}
 1 & 4 \\
 2 & 5 \\
