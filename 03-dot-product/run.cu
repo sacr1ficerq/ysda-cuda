@@ -32,7 +32,7 @@ TEST_CASE("Benchmark") {
         CheckStatus(
             cudaMalloc(reinterpret_cast<void**>(&data.rhs_device), kNumElements * sizeof(float)));
         CheckStatus(cudaMalloc(reinterpret_cast<void**>(&data.workspace_device),
-                               EstimateDotProductWorkspaceSizeBytes(kNumElements) * sizeof(float)));
+                               EstimateDotProductWorkspaceSizeBytes(kNumElements)));
         CheckStatus(cudaMalloc(reinterpret_cast<void**>(&data.out_device), sizeof(float)));
 
         const std::vector<float> lhs_host(kNumElements, 1.0f);
