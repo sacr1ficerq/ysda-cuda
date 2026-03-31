@@ -13,20 +13,20 @@ __global__ void BlockDotProductKernel(const float* lhs_device, const float* rhs_
                                       size_t num_elements, float* workspace_device) {
     const size_t index = static_cast<size_t>(blockDim.x) * blockIdx.x + threadIdx.x;
 
-    __shared__ float shared_buffer[512];
+    __shared__ double shared_buffer[512];
 
     if (threadIdx.x == 0) {
         workspace_device[blockIdx.x] = 0;
     }
 
     if (index < num_elements) {
-        shared_buffer[threadIdx.x] = lhs_device[index] * rhs_device[index];
+        shared_buffer[threadIdx.x] = static_cast<double>(lhs_device[index]) * rhs_device[index];
     }
     __syncthreads();
 
     // reduce inside each kernel and put inside workspace[blockIdx.x]
     if (index < num_elements) {
-        atomicAdd(workspace_device + blockIdx.x, shared_buffer[threadIdx.x]);
+        atomicAdd(workspace_device + blockIdx.x, static_cast<float>(shared_buffer[threadIdx.x]));
     }
 }
 
