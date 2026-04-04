@@ -33,6 +33,7 @@ add_if_exists(04-gemm-v1)
 add_if_exists(05-quantization)
 add_if_exists(05-quaternions)
 add_if_exists(05-softmax-long)
+add_if_exists(06-moe-topk)
 add_if_exists(06-cutlass-gemm)
 
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/private)
