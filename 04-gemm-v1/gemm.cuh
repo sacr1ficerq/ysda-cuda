@@ -5,13 +5,6 @@
 
 #include <cuda_helpers.h>
 
-// tile row can be processed with one warp easy peasy in one clock cycle
-#define TILE_DIM 32
-
-// amount of warps = TILE_DIM / BLOCK_ROWS
-// how to determine optimal amount of warps inside one block??
-// #define BLOCK_ROWS 4
-
 enum class MatrixLayout { RowMajor, ColMajor };
 
 struct DeviceMatrix {
@@ -28,8 +21,101 @@ struct DeviceMatrix {
     }
 };
 
+#define TILE_DIM 64
+#define TILE_INNER 8
+#define TM 8
+
 __global__ void GEMMKernel(const DeviceMatrix a, const DeviceMatrix b, const DeviceMatrix c,
                            DeviceMatrix d, float alpha, float beta) {
+    // A: [M, N]
+    // B: [N, K]
+    // C: [M, K]
+
+    __shared__ __half a_tile[TILE_DIM][TILE_INNER];
+    __shared__ __half b_tile[TILE_INNER][TILE_DIM];
+
+    // one block calculates one tile in C, starting at
+    const size_t tile_x = blockIdx.x * TILE_DIM;
+    const size_t tile_y = blockIdx.y * TILE_DIM;
+
+    // 1D thread indexing
+    const size_t thread_x = threadIdx.x % TILE_DIM;  // column in output tile
+    const size_t thread_y = threadIdx.x / TILE_DIM;  // row-group in output tile
+
+    const size_t inner_ax = threadIdx.x % TILE_INNER;
+    const size_t inner_ay = threadIdx.x / TILE_INNER;
+    const size_t inner_bx = threadIdx.x % TILE_DIM;
+    const size_t inner_by = threadIdx.x / TILE_DIM;
+
+    // accumulate TM values instead of 1 to remove smem bottleneck
+    float tmp[TM] = {0.0f};
+
+    // stride by TILE_INNER instead of TILE_DIM
+    for (size_t i = 0; i < a.cols; i += TILE_INNER) {
+        // coalesced fetch A, B matrixes to tiles
+        {
+            size_t ay = tile_y + inner_ay;
+            size_t ax = i + inner_ax;
+            __half val = (ay < a.rows && ax < a.cols) ? a.At(ay, ax) : __float2half(0.0f);
+            a_tile[inner_ay][inner_ax] = val;
+        }
+        {
+            size_t by = i + inner_by;
+            size_t bx = tile_x + inner_bx;
+            __half val = (by < b.rows && bx < b.cols) ? b.At(by, bx) : __float2half(0.0f);
+            b_tile[inner_by][inner_bx] = val;
+        }
+
+        __syncthreads();
+
+        // dot products inside tiles
+        // res[y, x] = <A[y, :], B[:, x]>
+        // 1D tiling
+        for (size_t j = 0; j < TILE_INNER; ++j) {
+            __half tmp_b = b_tile[j][thread_x];
+            for (size_t k = 0; k < TM; ++k) {
+                tmp[k] += static_cast<float>(a_tile[thread_y * TM + k][j] * tmp_b);
+            }
+        }
+
+        // sync threds to prevent fast threads to load new data to smem
+        // while slow threads still computing dot product
+        __syncthreads();
+    }
+
+    // write TM results per thread
+    for (size_t k = 0; k < TM; ++k) {
+        size_t y = tile_y + thread_y * TM + k;
+        size_t x = tile_x + thread_x;
+        // D[y, x] = a * <A[y, :], B[:, x]> + b * C[y, x]
+        if (y < d.rows && x < d.cols) {
+            float t1 = alpha * tmp[k];
+            float t2 = beta * static_cast<float>(c.At(y, x));
+
+            d.At(y, x) = static_cast<__half>(t1 + t2);
+        }
+    }
+}
+
+void GEMM(const DeviceMatrix& a, const DeviceMatrix& b, const DeviceMatrix& c, DeviceMatrix& d,
+          float alpha, float beta) {
+    assert(c.cols == d.cols && c.rows == d.rows);
+
+    // 1D block: TILE_DIM/TM * TILE_DIM = 8 * 64 = 512 threads
+    dim3 block(TILE_DIM * TILE_INNER);  // = (TILE_DIM / TM) * TILE_DIM = 512
+
+    dim3 grid((d.cols + TILE_DIM - 1) / TILE_DIM, (d.rows + TILE_DIM - 1) / TILE_DIM);
+
+    GEMMKernel<<<grid, block>>>(a, b, c, d, alpha, beta);
+    CheckStatus(cudaGetLastError());
+    CheckStatus(cudaDeviceSynchronize());
+}
+
+// tile row can be processed with one warp easy peasy in one clock cycle
+// #define TILE_DIM 32
+
+__global__ void GEMMKernelOld(const DeviceMatrix a, const DeviceMatrix b, const DeviceMatrix c,
+                              DeviceMatrix d, float alpha, float beta) {
     // A: [M, N]
     // B: [N, K]
     // C: [M, K]
@@ -87,8 +173,8 @@ __global__ void GEMMKernel(const DeviceMatrix a, const DeviceMatrix b, const Dev
     }
 }
 
-void GEMM(const DeviceMatrix& a, const DeviceMatrix& b, const DeviceMatrix& c, DeviceMatrix& d,
-          float alpha, float beta) {
+void GEMMOld(const DeviceMatrix& a, const DeviceMatrix& b, const DeviceMatrix& c, DeviceMatrix& d,
+             float alpha, float beta) {
     assert(c.cols == d.cols && c.rows == d.rows);
 
     size_t total_width = c.cols;
