@@ -8,17 +8,21 @@ template <int Cols>
 __global__ void QuanternionsReduceKernel(size_t rows, const Quaternion* __restrict__ inp,
                                          size_t inp_stride, Quaternion* __restrict__ out) {
     int tx = threadIdx.x % 32;
-    int ty = threadIdx.x / 32;
+    int warp_id = threadIdx.x / 32;
+    constexpr int num_warps = 256 / 32;
 
-    int by = blockIdx.x;
-
-    int y = by * 16 + ty;
+    int y = blockIdx.x;
 
     if (y < rows) {
-        Quaternion row_total = {1.0f, 0.0f, 0.0f, 0.0f};
+        Quaternion warp_total = {1.0f, 0.0f, 0.0f, 0.0f};
         constexpr int kTiles = Cols / 32;
-#pragma unroll
-        for (int tile = 0; tile < kTiles; ++tile) {
+        constexpr int tiles_per_warp = kTiles / num_warps;
+
+        int start_tile = warp_id * tiles_per_warp;
+        int end_tile = start_tile + tiles_per_warp;
+
+#pragma unroll 4
+        for (int tile = start_tile; tile < end_tile; ++tile) {
             Quaternion q1 = inp[y * inp_stride + tile * 32 + tx];
 
 #pragma unroll
@@ -39,20 +43,56 @@ __global__ void QuanternionsReduceKernel(size_t rows, const Quaternion* __restri
             }
 
             if (tx == 0) {
-                row_total = QuaternionMultiplier{}(row_total, q1);
+                warp_total = QuaternionMultiplier{}(warp_total, q1);
             }
         }
 
+        __shared__ Quaternion smem[num_warps];
+
         if (tx == 0) {
-            out[y] = row_total;
+            smem[warp_id] = warp_total;
+        }
+
+        __syncthreads();
+
+        if (warp_id == 0) {
+            Quaternion q_final = {1.0f, 0.0f, 0.0f, 0.0f};
+            if (tx < num_warps) {
+                q_final = smem[tx];
+            }
+
+#pragma unroll
+            for (int shift = 1; shift < 32; shift *= 2) {
+                Quaternion q2;
+                q2.a = __shfl_down_sync(0xffffffff, q_final.a, shift);
+                q2.b = __shfl_down_sync(0xffffffff, q_final.b, shift);
+                q2.c = __shfl_down_sync(0xffffffff, q_final.c, shift);
+                q2.d = __shfl_down_sync(0xffffffff, q_final.d, shift);
+
+                if (tx + shift < 32) {
+                    auto tmp = QuaternionMultiplier{}(q_final, q2);
+                    q_final.a = tmp.a;
+                    q_final.b = tmp.b;
+                    q_final.c = tmp.c;
+                    q_final.d = tmp.d;
+                }
+            }
+
+            if (tx == 0) {
+                out[y] = q_final;
+            }
         }
     }
 }
 
 void QuaternionsReduce(size_t rows, size_t cols, const Quaternion* inp, size_t inp_stride,
                        Quaternion* out, cudaStream_t stream) {
-    dim3 block(32 * 16);
-    dim3 grid((rows + 15) / 16);
+    if (rows == 0) {
+        return;
+    }
+
+    dim3 block(256);
+    dim3 grid(rows);
     switch (cols) {
         case 1024:
             QuanternionsReduceKernel<1024><<<grid, block, 0, stream>>>(rows, inp, inp_stride, out);
