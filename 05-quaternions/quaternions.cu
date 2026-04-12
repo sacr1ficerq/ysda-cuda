@@ -4,10 +4,9 @@
 
 #include <cuda_runtime.h>
 
-#define MASK_ALL 0xffffffff
-
-__global__ void QuanternionsReduceKernel(size_t rows, size_t cols, const Quaternion* inp,
-                                         size_t inp_stride, Quaternion* out) {
+template <int Cols>
+__global__ void QuanternionsReduceKernel(size_t rows, const Quaternion* __restrict__ inp,
+                                         size_t inp_stride, Quaternion* __restrict__ out) {
     int tx = threadIdx.x % 32;
     int ty = threadIdx.x / 32;
 
@@ -15,27 +14,28 @@ __global__ void QuanternionsReduceKernel(size_t rows, size_t cols, const Quatern
 
     int y = by * 16 + ty;
 
-    // prod in row
     if (y < rows) {
         Quaternion row_total = {1.0f, 0.0f, 0.0f, 0.0f};
-        for (int x = tx; x < cols; x += 32) {
-            Quaternion q1 = inp[y * inp_stride + x];
+        constexpr int kTiles = Cols / 32;
+#pragma unroll
+        for (int tile = 0; tile < kTiles; ++tile) {
+            Quaternion q1 = inp[y * inp_stride + tile * 32 + tx];
 
-            // reduce the 32 elements within this warp tile
 #pragma unroll
             for (int shift = 1; shift < 32; shift *= 2) {
-
                 Quaternion q2;
                 q2.a = __shfl_down_sync(0xffffffff, q1.a, shift);
                 q2.b = __shfl_down_sync(0xffffffff, q1.b, shift);
                 q2.c = __shfl_down_sync(0xffffffff, q1.c, shift);
                 q2.d = __shfl_down_sync(0xffffffff, q1.d, shift);
 
-                auto tmp = QuaternionMultiplier{}(q1, q2);
-                q1.a = tmp.a;
-                q1.b = tmp.b;
-                q1.c = tmp.c;
-                q1.d = tmp.d;
+                if (tx + shift < 32) {
+                    auto tmp = QuaternionMultiplier{}(q1, q2);
+                    q1.a = tmp.a;
+                    q1.b = tmp.b;
+                    q1.c = tmp.c;
+                    q1.d = tmp.d;
+                }
             }
 
             if (tx == 0) {
@@ -51,10 +51,19 @@ __global__ void QuanternionsReduceKernel(size_t rows, size_t cols, const Quatern
 
 void QuaternionsReduce(size_t rows, size_t cols, const Quaternion* inp, size_t inp_stride,
                        Quaternion* out, cudaStream_t stream) {
-    // YOUR CODE HERE
-    // NB: no need to do any allocations here
-    // NB: no explicit cudaDeviceSynchronize is required here
     dim3 block(32 * 16);
     dim3 grid((rows + 15) / 16);
-    QuanternionsReduceKernel<<<grid, block, 0, stream>>>(rows, cols, inp, inp_stride, out);
+    switch (cols) {
+        case 1024:
+            QuanternionsReduceKernel<1024><<<grid, block, 0, stream>>>(rows, inp, inp_stride, out);
+            break;
+        case 2048:
+            QuanternionsReduceKernel<2048><<<grid, block, 0, stream>>>(rows, inp, inp_stride, out);
+            break;
+        case 4096:
+            QuanternionsReduceKernel<4096><<<grid, block, 0, stream>>>(rows, inp, inp_stride, out);
+            break;
+        default:
+            assert(false);
+    }
 }
